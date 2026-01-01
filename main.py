@@ -12,7 +12,7 @@ FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK")
 KEYWORD = "监控"
 
 # 1. 正常运行模式 (只看过去16分钟)
-TIME_WINDOW_MINUTES = 16
+TIME_WINDOW_MINUTES = 1440
 
 # 2. 【核心修改】保留一周左右的数据量
 # 每天约60次运行 * 7天 * 每次平均2条 = 840条
