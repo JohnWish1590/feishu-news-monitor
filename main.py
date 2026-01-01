@@ -13,7 +13,6 @@ KEYWORD = "监控"
 # ⚠️ 测试完记得把这个改回 16
 TIME_WINDOW_MINUTES = 1440 
 
-# 加载订阅源
 def load_rss_list():
     rss_list = []
     if os.path.exists("rss.txt"):
@@ -42,32 +41,57 @@ def translate_text(text):
         return translator.translate(text)
     except: return text
 
+# --- 新增功能：把新闻写入 index.html (支持倒序) ---
+def update_html_archive(news_list):
+    """读取 index.html，把新新闻插入到标记位"""
+    if not os.path.exists("index.html"): return
+    
+    # 1. 生成新内容的 HTML 片段
+    new_html = ""
+    for news in news_list:
+        # HTML 卡片样式
+        card = f"""
+        <a href="{news['link']}" target="_blank">
+            <div class="news-card">
+                <div class="news-header">
+                    <span class="source-tag">{news['source']}</span>
+                    <span class="time-tag">{news['display_time']}</span>
+                </div>
+                <div class="news-title">{news['title_cn']}</div>
+                <div class="news-meta">原文：{news['title']}</div>
+            </div>
+        </a>
+        """
+        new_html += card
+
+    # 2. 读取原文件并插入
+    with open("index.html", "r", encoding="utf-8") as f:
+        content = f.read()
+    
+    # 关键点：找到标记位，把新内容插在标记后面
+    # 因为我们传入的 list 已经是【新->旧】排序的，所以插在最上面正好
+    marker = ""
+    if marker in content:
+        new_content = content.replace(marker, marker + "\n" + new_html)
+        with open("index.html", "w", encoding="utf-8") as f:
+            f.write(new_content)
+        print("✅ 网页存档已更新 (最新新闻在顶部)")
+
 def send_grouped_card(source_name, news_list):
-    """
-    发送聚合卡片：一张卡片包含多条新闻
-    """
-    if not FEISHU_WEBHOOK: return
-    if not news_list: return
+    """发送聚合卡片"""
+    if not FEISHU_WEBHOOK or not news_list: return
 
     headers = {"Content-Type": "application/json"}
-    
-    # 1. 构建卡片头部 (Header)
     card_content = {
         "config": {"wide_screen_mode": True},
         "header": {
             "template": "orange", 
-            "title": {
-                "tag": "plain_text", 
-                "content": f"📊 {source_name} ({len(news_list)}条新消息)"
-            }
+            "title": { "tag": "plain_text", "content": f"📊 {source_name} ({len(news_list)}条新消息)" }
         },
         "elements": []
     }
 
-    # 2. 动态构建中间的新闻列表 (Elements)
-    # 循环把每一条新闻加进去
     for i, news in enumerate(news_list):
-        # 每一条新闻是一个 div
         element_div = {
             "tag": "div",
             "text": {
@@ -76,12 +100,9 @@ def send_grouped_card(source_name, news_list):
             }
         }
         card_content["elements"].append(element_div)
-        
-        # 如果不是最后一条，加一个分割线，好看一点
         if i < len(news_list) - 1:
             card_content["elements"].append({"tag": "hr"})
 
-    # 3. 底部署名
     card_content["elements"].append({"tag": "hr"})
     card_content["elements"].append({
         "tag": "note",
@@ -101,8 +122,8 @@ def fetch_news_from_url(url):
         feed = feedparser.parse(url, agent="Mozilla/5.0")
         if not feed.entries: return []
         
-        # 来源识别
         feed_title = feed.feed.get('title', 'Market')
+        # 来源判断逻辑
         if "Bloomberg" in feed_title:
             if "Market" in feed_title: source_name = "彭博市场"
             elif "Economics" in feed_title: source_name = "彭博经济"
@@ -126,9 +147,9 @@ def fetch_news_from_url(url):
                         "title": title_origin,
                         "link": link,
                         "pub_dt": pub_dt,
-                        "display_time": (pub_dt + timedelta(hours=8)).strftime('%H:%M'), # 聚合模式下，时间只显示 时:分 就够了
+                        "display_time": (pub_dt + timedelta(hours=8)).strftime('%H:%M'),
                         "source": source_name,
-                        "title_cn": "" 
+                        "title_cn": "" # 稍后统一填
                     }
                     collected_news.append(news_item)
     except Exception as e: 
@@ -137,41 +158,39 @@ def fetch_news_from_url(url):
     return collected_news
 
 if __name__ == "__main__":
-    if not FEISHU_WEBHOOK or not RSS_LIST:
-        print("⚠️ 配置缺失")
+    if not RSS_LIST:
+        print("⚠️ 配置缺失: 请检查 rss.txt")
     else:
         print("📥 开始抓取...")
         all_news_buffer = []
-        
-        # 1. 抓取所有新闻
         for rss_url in RSS_LIST:
             news_list = fetch_news_from_url(rss_url)
             all_news_buffer.extend(news_list)
 
-        # 2. 分组逻辑 (Grouping)
-        # 创建一个字典： { "彭博市场": [新闻1, 新闻2], "36氪": [新闻A] }
-        news_by_source = {}
-        
-        # 先按时间排个序，保证卡片里的新闻是从旧到新的
+        # 排序：先按【旧 -> 新】排好
+        # 为什么要旧到新？因为飞书卡片里读起来习惯是从上往下读
         all_news_buffer.sort(key=lambda x: x['pub_dt'])
+        
+        if all_news_buffer:
+            print(f"⚡ 正在处理 {len(all_news_buffer)} 条新闻 (翻译中)...")
+            # 统一翻译
+            for news in all_news_buffer:
+                news['title_cn'] = translate_text(news['title'])
 
-        for news in all_news_buffer:
-            source = news['source']
-            if source not in news_by_source:
-                news_by_source[source] = []
-            news_by_source[source].append(news)
+            # === 动作 1: 更新网页存档 (倒序) ===
+            # 这里用了 reversed()，把列表变成【新 -> 旧】，从而实现最新新闻在网页最顶部
+            update_html_archive(reversed(all_news_buffer))
 
-        # 3. 按来源发送聚合卡片
-        if not news_by_source:
-            print("📭 暂无新消息")
-        else:
+            # === 动作 2: 发送飞书聚合卡片 ===
+            # 这里的 all_news_buffer 依然是【旧 -> 新】，符合阅读习惯
+            news_by_source = {}
+            for news in all_news_buffer:
+                source = news['source']
+                if source not in news_by_source: news_by_source[source] = []
+                news_by_source[source].append(news)
+            
             for source, news_list in news_by_source.items():
-                print(f"📦 正在打包 {source} 的 {len(news_list)} 条新闻...")
-                
-                # 统一翻译 (放在发送前翻译)
-                for news in news_list:
-                    news['title_cn'] = translate_text(news['title'])
-                
-                # 发送这一组
                 send_grouped_card(source, news_list)
-                time.sleep(1) # 防止发太快
+                time.sleep(1)
+        else:
+            print("📭 无新消息")
