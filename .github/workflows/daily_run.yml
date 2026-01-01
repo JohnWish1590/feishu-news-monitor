@@ -2,26 +2,38 @@ name: News Monitor
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # 每15分钟
+    - cron: '*/15 * * * *'
   workflow_dispatch:
+
+# 【新增】给 Actions 写入仓库的权限
+permissions:
+  contents: write
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3 # 升级到 v3
 
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
           python-version: '3.9'
-
+          
       - name: Install dependencies
         run: pip install -r requirements.txt
-
+          
       - name: Run Monitor
         env:
-          # 这一步是把 GitHub 的秘密传给 Python
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: python main.py
+
+      # 【新增】把修改后的 index.html 推送回仓库
+      - name: Commit and Push Archive
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          # 检查 index.html 是否有变化，有变化才提交
+          git add index.html
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto update news archive" && git push)
