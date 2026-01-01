@@ -1,38 +1,62 @@
-# 📈 Feishu Financial News Monitor (飞书财经新闻机器人)
+# 📈 Feishu Financial News Monitor (飞书财经快讯监控机器人)
 
 > 一个基于 GitHub Actions 的 Serverless 财经新闻监控机器人。零成本、即时推送、自动翻译、彭博终端风格。
 
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Python](https://img.shields.io/badge/python-3.9-green)
+![Status](https://img.shields.io/badge/status-active-orange)
+
 ## ✨ 项目亮点
 
-你是否想要第一时间获取 **Bloomberg** 或 **Investing.com** 的突发新闻？
-这个 GitHub 模板可以让你在 3 分钟内拥有一个属于自己的财经情报机器人。
+你是否想要第一时间获取 **Bloomberg**、**路透社** 或 **Investing.com** 的突发新闻？
+这个 GitHub 模板让你在 **3 分钟内** 拥有一个属于自己的财经情报机器人，而且**完全不需要懂编程**。
 
-| 效果图 | 特性 |
+| 效果图 | 核心特性 |
 | :---: | :--- |
-| <img src="https://github.com/user-attachments/assets/774956e1-5ac1-4dbe-9898-7e5977369427" width="300" /> | ✅ **零成本**：白嫖 GitHub Actions 免费运行。<br><br>✅ **彭博风格**：还原经典金融终端“橙色警报”风格。<br><br>✅ **隐私安全**：Webhook 只有你自己知道。<br><br>✅ **自动双语**：英文快讯自动翻译为中文。 |
+| <img src="https://github.com/user-attachments/assets/774956e1-5ac1-4dbe-9898-7e5977369427" width="300" /> | ✅ **傻瓜式配置**：通过 `rss.txt` 文件自由添加新闻源。<br><br>✅ **隐私安全**：Webhook 密钥分理，只有你自己知道。<br><br>✅ **自动双语**：英文快讯自动翻译为中文。<br><br>✅ **免打扰**：夜间自动休眠，不打扰睡眠。 |
 
 ---
 
-## 🚀 3分钟部署教程
+## 🚀 3分钟部署教程 (小白必读)
 
-### 第一步：获取飞书 Webhook 🤖
+### 第一步：准备飞书机器人 🤖
 1. 在飞书群聊中 -> 设置 -> 群机器人 -> 添加机器人 -> **自定义机器人**。
-2. 安全设置勾选 **“自定义关键词”**，填入：`监控`。
-3. 复制生成的 webhook 地址。
+2. **安全设置 (重要)**：勾选 **“自定义关键词”**，并填入：`监控` (必须是这两个字)。
+3. 复制生成的 Webhook 地址 (以 `https://open.feishu.cn/...` 开头)。
 
 ### 第二步：复刻项目 📋
 1. 点击本项目页面右上角的绿色按钮 **"Use this template"** -> **"Create a new repository"**。
-2. 起个名字，点击 Create。
+2. 给你的仓库起个名字（例如 `my-news-bot`），点击 **Create repository**。
 
-### 第三步：配置密钥 (最关键！) 🔑
-1. 进入你新创建的仓库，点击 **Settings**。
-2. 左侧找 **Secrets and variables** -> **Actions**。
-3. 点击 **New repository secret**。
-4. **Name** 填：`FEISHU_WEBHOOK`。
-5. **Secret** 填：你的飞书 Webhook 地址。
-6. 点击 Add secret 保存。
+### 第三步：配置密钥 (连接飞书) 🔑
+1. 进入你新创建的仓库，点击上方的 **Settings** (设置)。
+2. 在左侧栏找到 **Secrets and variables** -> 点击 **Actions**。
+3. 点击右侧绿色按钮 **New repository secret**。
+4. **Name** 填：`FEISHU_WEBHOOK` (必须全大写，不能有空格)。
+5. **Secret** 填：第一步里复制的飞书 Webhook 地址。
+6. 点击 **Add secret** 保存。
 
-### 第四步：启动 ⚡
+### 第四步：启动！⚡
 1. 点击仓库上方的 **Actions** 标签。
-2. 点击 **News Monitor** -> **Run workflow**。
-3. 完成！以后它每15分钟自动运行。
+2. 你会看到一个警告，点击绿色按钮 **"I understand my workflows..."**。
+3. 在左侧点击 **News Monitor** -> 右侧点击 **Run workflow** -> **Run workflow**。
+4. 此时你的飞书应该会收到一条测试推送（如果有新新闻的话）。
+
+---
+
+## 🔧 进阶配置 (如何自定义新闻源)
+
+本机器人支持自由添加任何 RSS 订阅源，**无需修改代码**。
+
+1. 在仓库的文件列表中，点击 **`rss.txt`** 文件。
+2. 点击右上角的小铅笔图标 ✏️ (Edit)。
+3. **一行一个链接**，粘贴你想要监控的 RSS 地址。
+    * *提示：不想看的源可以在前面加 `#` 号注释掉。*
+4. 点击 **Commit changes** 保存。
+5. 下次运行时，机器人就会自动加载最新的列表了！
+
+#### 推荐的 RSS 源：
+```text
+[https://feeds.bloomberg.com/markets/news.rss](https://feeds.bloomberg.com/markets/news.rss)      # 彭博市场
+[https://feeds.bloomberg.com/economics/news.rss](https://feeds.bloomberg.com/economics/news.rss)    # 彭博经济
+[https://cn.investing.com/rss/news_1.rss](https://cn.investing.com/rss/news_1.rss)           # 英为财情
