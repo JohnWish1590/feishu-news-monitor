@@ -10,7 +10,7 @@ from deep_translator import GoogleTranslator
 # ================= 配置区 =================
 FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK")
 KEYWORD = "监控"
-TIME_WINDOW_MINUTES = 1440 # ⚠️ 测试用 1440 (24小时)，测完改回 16
+TIME_WINDOW_MINUTES = 16 # ⚠️ 测试用 1440 (24小时)，测完改回 16
 MAX_ARCHIVE_ITEMS = 800
 
 # =========================================
