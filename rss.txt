@@ -1,0 +1,3 @@
+https://feeds.bloomberg.com/markets/news.rss
+https://feeds.bloomberg.com/economics/news.rss
+https://cn.investing.com/rss/news_1.rss
