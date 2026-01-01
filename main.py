@@ -10,11 +10,10 @@ from deep_translator import GoogleTranslator
 FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK")
 KEYWORD = "监控"
 
-# 【测试模式】当前设为 1440 (24小时) 以便您看到效果
-# ⚠️ 正式使用时请改回 16
+# ⚠️ 测试完记得把这个改回 16
 TIME_WINDOW_MINUTES = 1440 
 
-# 从 rss.txt 加载列表
+# 加载订阅源
 def load_rss_list():
     rss_list = []
     if os.path.exists("rss.txt"):
@@ -43,45 +42,61 @@ def translate_text(text):
         return translator.translate(text)
     except: return text
 
-def send_feishu_card(news_item):
+def send_grouped_card(source_name, news_list):
     """
-    发送单条消息，参数是字典对象
+    发送聚合卡片：一张卡片包含多条新闻
     """
     if not FEISHU_WEBHOOK: return
-    
-    # 解包数据
-    title_en = news_item['title']
-    title_cn = news_item['title_cn']
-    link = news_item['link']
-    date_str = news_item['display_time']
-    source_name = news_item['source']
+    if not news_list: return
 
     headers = {"Content-Type": "application/json"}
+    
+    # 1. 构建卡片头部 (Header)
     card_content = {
         "config": {"wide_screen_mode": True},
         "header": {
             "template": "orange", 
-            "title": {"tag": "plain_text", "content": f"【{source_name}】 {title_cn}"}
+            "title": {
+                "tag": "plain_text", 
+                "content": f"📊 {source_name} ({len(news_list)}条新消息)"
+            }
         },
-        "elements": [
-            {"tag": "div", "text": {"tag": "lark_md", "content": f"**原文：** {title_en}\n**时间：** {date_str}"}},
-            {"tag": "hr"},
-            {"tag": "action", "actions": [{"tag": "button", "text": {"tag": "plain_text", "content": "点击查看全文"}, "type": "primary", "url": link}]},
-            {"tag": "note", "elements": [{"tag": "plain_text", "content": f"来自：{KEYWORD} 机器人"}]}
-        ]
+        "elements": []
     }
+
+    # 2. 动态构建中间的新闻列表 (Elements)
+    # 循环把每一条新闻加进去
+    for i, news in enumerate(news_list):
+        # 每一条新闻是一个 div
+        element_div = {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"🔹 **{news['title_cn']}**\n📄 原文：[{news['title']}]({news['link']})\n⏰ 时间：{news['display_time']}"
+            }
+        }
+        card_content["elements"].append(element_div)
+        
+        # 如果不是最后一条，加一个分割线，好看一点
+        if i < len(news_list) - 1:
+            card_content["elements"].append({"tag": "hr"})
+
+    # 3. 底部署名
+    card_content["elements"].append({"tag": "hr"})
+    card_content["elements"].append({
+        "tag": "note",
+        "elements": [{"tag": "plain_text", "content": f"来自：{KEYWORD} 机器人 | 自动聚合模式"}]
+    })
+
     try:
         requests.post(FEISHU_WEBHOOK, headers=headers, data=json.dumps({"msg_type": "interactive", "card": card_content}))
-        print(f"✅ 推送成功: {title_cn[:10]}...")
+        print(f"✅ [聚合推送] {source_name} - {len(news_list)} 条内容已发送")
     except Exception as e:
         print(f"❌ 推送失败: {e}")
 
 def fetch_news_from_url(url):
-    """
-    只抓取，不发送。返回抓取到的新闻列表。
-    """
     collected_news = []
-    print(f"🔍 正在检查: {url}")
+    print(f"🔍 检查: {url}")
     try:
         feed = feedparser.parse(url, agent="Mozilla/5.0")
         if not feed.entries: return []
@@ -96,7 +111,7 @@ def fetch_news_from_url(url):
         elif "Investing" in feed_title: source_name = "英为财情"
         elif "Reuters" in feed_title: source_name = "路透社"
         elif "36Kr" in feed_title: source_name = "36氪"
-        elif "Huxiu" in feed_title: source_name = "虎嗅"
+        elif "TechCrunch" in feed_title: source_name = "TechCrunch"
         else: source_name = feed_title[:10].replace("RSS", "").strip()
 
         for entry in feed.entries[:5]:
@@ -105,55 +120,58 @@ def fetch_news_from_url(url):
             published_time = entry.published_parsed if hasattr(entry, 'published_parsed') else time.gmtime()
             pub_dt = datetime.fromtimestamp(time.mktime(published_time), timezone.utc)
             
-            # 时间过滤
             if pub_dt > (datetime.now(timezone.utc) - timedelta(minutes=TIME_WINDOW_MINUTES)):
                 if is_work_time():
-                    # 这里先不翻译，等排序后再翻译，或者现在翻译都可以
-                    # 为了方便，先存起来
                     news_item = {
                         "title": title_origin,
                         "link": link,
-                        "pub_dt": pub_dt, # 用于排序的原始时间对象
-                        "display_time": (pub_dt + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S'),
+                        "pub_dt": pub_dt,
+                        "display_time": (pub_dt + timedelta(hours=8)).strftime('%H:%M'), # 聚合模式下，时间只显示 时:分 就够了
                         "source": source_name,
-                        "title_cn": "" # 稍后填入
+                        "title_cn": "" 
                     }
                     collected_news.append(news_item)
     except Exception as e: 
-        print(f"Error checking {url}: {e}")
+        print(f"Error: {e}")
     
     return collected_news
 
 if __name__ == "__main__":
-    if not FEISHU_WEBHOOK:
-        print("⚠️ 未检测到 Webhook")
-    elif not RSS_LIST:
-        print("⚠️ rss.txt 为空")
+    if not FEISHU_WEBHOOK or not RSS_LIST:
+        print("⚠️ 配置缺失")
     else:
-        print("📥 开始收集所有订阅源的新闻...")
+        print("📥 开始抓取...")
         all_news_buffer = []
         
-        # 1. 遍历所有 URL，收集新闻
+        # 1. 抓取所有新闻
         for rss_url in RSS_LIST:
             news_list = fetch_news_from_url(rss_url)
             all_news_buffer.extend(news_list)
-            
-        print(f"📊 共收集到 {len(all_news_buffer)} 条符合时间要求的新闻")
 
-        # 2. 核心步骤：按时间排序
-        # x['pub_dt'] 是时间对象。从小到大排序 = 从旧到新。
-        # 这样飞书里最下面的是最新的。
+        # 2. 分组逻辑 (Grouping)
+        # 创建一个字典： { "彭博市场": [新闻1, 新闻2], "36氪": [新闻A] }
+        news_by_source = {}
+        
+        # 先按时间排个序，保证卡片里的新闻是从旧到新的
         all_news_buffer.sort(key=lambda x: x['pub_dt'])
 
-        # 3. 逐条翻译并推送
         for news in all_news_buffer:
-            # 翻译标题 (放在这里是为了只翻译最终要发的，省资源)
-            print(f"⚡ 正在处理: [{news['source']}] {news['title'][:10]}...")
-            news['title_cn'] = translate_text(news['title'])
-            
-            # 发送
-            send_feishu_card(news)
-            # 稍微停顿一下，防止发太快顺序乱了
-            time.sleep(1)
-            
-        print("🏁 所有任务完成")
+            source = news['source']
+            if source not in news_by_source:
+                news_by_source[source] = []
+            news_by_source[source].append(news)
+
+        # 3. 按来源发送聚合卡片
+        if not news_by_source:
+            print("📭 暂无新消息")
+        else:
+            for source, news_list in news_by_source.items():
+                print(f"📦 正在打包 {source} 的 {len(news_list)} 条新闻...")
+                
+                # 统一翻译 (放在发送前翻译)
+                for news in news_list:
+                    news['title_cn'] = translate_text(news['title'])
+                
+                # 发送这一组
+                send_grouped_card(source, news_list)
+                time.sleep(1) # 防止发太快
