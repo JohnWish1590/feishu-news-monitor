@@ -9,7 +9,7 @@ from deep_translator import GoogleTranslator
 # ================= 配置区 =================
 FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK")
 KEYWORD = "监控"
-TIME_WINDOW_MINUTES = 16 
+TIME_WINDOW_MINUTES = 1440 
 
 # 【核心升级】从 rss.txt 文件加载监控列表
 def load_rss_list():
