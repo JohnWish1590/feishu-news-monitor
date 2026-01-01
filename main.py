@@ -3,6 +3,7 @@ import requests
 import json
 import time
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from deep_translator import GoogleTranslator
 
@@ -10,8 +11,13 @@ from deep_translator import GoogleTranslator
 FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK")
 KEYWORD = "监控"
 
-# ⚠️ 测试完记得把这个改回 16
-TIME_WINDOW_MINUTES = 1440 
+# 1. 正常运行模式 (只看过去16分钟)
+TIME_WINDOW_MINUTES = 16
+
+# 2. 【核心修改】保留一周左右的数据量
+# 每天约60次运行 * 7天 * 每次平均2条 = 840条
+# 设定为 800，文件大小仅约 300KB，非常安全
+MAX_ARCHIVE_ITEMS = 800 
 
 def load_rss_list():
     rss_list = []
@@ -41,44 +47,63 @@ def translate_text(text):
         return translator.translate(text)
     except: return text
 
-# --- 新增功能：把新闻写入 index.html (支持倒序) ---
+# --- 网页写入函数 (带自动清理) ---
 def update_html_archive(news_list):
-    """读取 index.html，把新新闻插入到标记位"""
     if not os.path.exists("index.html"): return
     
-    # 1. 生成新内容的 HTML 片段
+    # 1. 生成新内容的 HTML
     new_html = ""
     for news in news_list:
-        # HTML 卡片样式
-        card = f"""
-        <a href="{news['link']}" target="_blank">
-            <div class="news-card">
-                <div class="news-header">
-                    <span class="source-tag">{news['source']}</span>
-                    <span class="time-tag">{news['display_time']}</span>
-                </div>
-                <div class="news-title">{news['title_cn']}</div>
-                <div class="news-meta">原文：{news['title']}</div>
-            </div>
-        </a>
+        item = f"""
+        <div class="timeline-item">
+            <div class="time-label">{news['display_time']}</div>
+            <div class="dot"></div>
+            <a href="{news['link']}" target="_blank" class="content-card">
+                <span class="source-badge">{news['source']}</span>
+                <h3 class="news-title">{news['title_cn']}</h3>
+                <div class="news-origin">{news['title']}</div>
+            </a>
+        </div>
         """
-        new_html += card
+        new_html += item
 
-    # 2. 读取原文件并插入
+    # 2. 读取文件
     with open("index.html", "r", encoding="utf-8") as f:
         content = f.read()
     
-    # 关键点：找到标记位，把新内容插在标记后面
-    # 因为我们传入的 list 已经是【新->旧】排序的，所以插在最上面正好
+    # 3. 插入新内容
     marker = ""
     if marker in content:
-        new_content = content.replace(marker, marker + "\n" + new_html)
+        content = content.replace(marker, marker + "\n" + new_html)
+        
+        # === 4. 清理旧新闻 (控制在一周左右) ===
+        # 查找所有的 timeline-item
+        item_matches = [m.start() for m in re.finditer(r'<div class="timeline-item">', content)]
+        
+        # 如果超过限制 (800条)
+        if len(item_matches) > MAX_ARCHIVE_ITEMS:
+            print(f"🧹 触发清理: 当前 {len(item_matches)} 条，保留最新的 {MAX_ARCHIVE_ITEMS} 条")
+            
+            # 找到第 801 条的开始位置，把后面的切掉
+            cut_off_index = item_matches[MAX_ARCHIVE_ITEMS]
+            kept_content = content[:cut_off_index]
+            
+            # 补全页脚
+            footer = """
+        </div>
+        <div style="text-align: center; margin-top: 50px; color: var(--text-sub); font-size: 0.8rem;">
+            —— End of Archive (Last 7 Days) ——
+        </div>
+    </div>
+</body>
+</html>"""
+            content = kept_content + footer
+            
         with open("index.html", "w", encoding="utf-8") as f:
-            f.write(new_content)
-        print("✅ 网页存档已更新 (最新新闻在顶部)")
+            f.write(content)
+        print("✅ 网页已更新")
 
 def send_grouped_card(source_name, news_list):
-    """发送聚合卡片"""
     if not FEISHU_WEBHOOK or not news_list: return
 
     headers = {"Content-Type": "application/json"}
@@ -111,7 +136,6 @@ def send_grouped_card(source_name, news_list):
 
     try:
         requests.post(FEISHU_WEBHOOK, headers=headers, data=json.dumps({"msg_type": "interactive", "card": card_content}))
-        print(f"✅ [聚合推送] {source_name} - {len(news_list)} 条内容已发送")
     except Exception as e:
         print(f"❌ 推送失败: {e}")
 
@@ -123,7 +147,7 @@ def fetch_news_from_url(url):
         if not feed.entries: return []
         
         feed_title = feed.feed.get('title', 'Market')
-        # 来源判断逻辑
+        # 简单来源判断
         if "Bloomberg" in feed_title:
             if "Market" in feed_title: source_name = "彭博市场"
             elif "Economics" in feed_title: source_name = "彭博经济"
@@ -149,7 +173,7 @@ def fetch_news_from_url(url):
                         "pub_dt": pub_dt,
                         "display_time": (pub_dt + timedelta(hours=8)).strftime('%H:%M'),
                         "source": source_name,
-                        "title_cn": "" # 稍后统一填
+                        "title_cn": "" 
                     }
                     collected_news.append(news_item)
     except Exception as e: 
@@ -159,7 +183,7 @@ def fetch_news_from_url(url):
 
 if __name__ == "__main__":
     if not RSS_LIST:
-        print("⚠️ 配置缺失: 请检查 rss.txt")
+        print("⚠️ 配置缺失")
     else:
         print("📥 开始抓取...")
         all_news_buffer = []
@@ -167,22 +191,17 @@ if __name__ == "__main__":
             news_list = fetch_news_from_url(rss_url)
             all_news_buffer.extend(news_list)
 
-        # 排序：先按【旧 -> 新】排好
-        # 为什么要旧到新？因为飞书卡片里读起来习惯是从上往下读
         all_news_buffer.sort(key=lambda x: x['pub_dt'])
         
         if all_news_buffer:
-            print(f"⚡ 正在处理 {len(all_news_buffer)} 条新闻 (翻译中)...")
-            # 统一翻译
+            print(f"⚡ 正在处理 {len(all_news_buffer)} 条新闻...")
             for news in all_news_buffer:
                 news['title_cn'] = translate_text(news['title'])
 
-            # === 动作 1: 更新网页存档 (倒序) ===
-            # 这里用了 reversed()，把列表变成【新 -> 旧】，从而实现最新新闻在网页最顶部
+            # 动作1: 倒序写网页 (限制800条)
             update_html_archive(reversed(all_news_buffer))
 
-            # === 动作 2: 发送飞书聚合卡片 ===
-            # 这里的 all_news_buffer 依然是【旧 -> 新】，符合阅读习惯
+            # 动作2: 发送飞书
             news_by_source = {}
             for news in all_news_buffer:
                 source = news['source']
