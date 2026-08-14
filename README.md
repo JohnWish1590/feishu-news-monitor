@@ -90,3 +90,5 @@
 [https://techcrunch.com/feed/](https://techcrunch.com/feed/)                      # TechCrunch (全球科技风向)
 [https://36kr.com/feed](https://36kr.com/feed)                             # 36氪 (创投)
 [https://www.theverge.com/rss/index.xml](https://www.theverge.com/rss/index.xml)            # The Verge (数码/文化)
+
+Socials: @下一站澳门. DM for inquiries.
